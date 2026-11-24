@@ -1,135 +1,153 @@
-# Multimodal Enterprise RAG System
+# Multimodal RAG System
 
-This project is a prototype of an Enterprise Retrieval-Augmented Generation (RAG) system, developed as part of a 72-hour technical challenge. It ingests multimodal data (text, images), builds a knowledge graph and a vector database, and uses a hybrid search mechanism to provide accurate, context-aware answers to user queries.
+A Retrieval-Augmented Generation (RAG) prototype that ingests multimodal
+files (PDF, text, images via OCR, audio via transcription) into a local
+Qdrant vector store and answers questions over them using Google's Gemini
+models, behind a Streamlit UI.
 
 ## Key Features
 
--   **Multimodal Ingestion:** Processes `.pdf`, `.txt`, and image files (`.jpg`, `.png`) using OCR.
--   **Dual Data Storage:**
-    -   **Knowledge Graph (Neo4j):** Stores structured entities and their relationships for precise, factual lookups.
-    -   **Vector Database (Qdrant):** Stores text embeddings for fast and scalable semantic search.
--   **Hybrid Search:** Combines the strengths of graph traversal and semantic search to retrieve the most relevant context.
--   **LLM Integration:** Uses Google's Gemini models for entity extraction and final answer generation.
--   **Interactive UI:** A user-friendly web interface built with Streamlit for file uploads and Q&A.
--   **Evaluation-First Dashboard:** Includes an automated evaluation suite using DeepEval, with results visualized in a dedicated dashboard tab to measure system quality and prevent hallucinations.
+-   **Multimodal ingestion:** `.pdf`, `.txt`, images (`.jpg`, `.jpeg`, `.png`)
+    via Tesseract OCR, and `.wav` audio via speech-to-text.
+-   **Local vector store:** Qdrant in embedded/local-disk mode — no Docker or
+    separate server required. Data persists in `./local_qdrant_db`.
+-   **Semantic retrieval:** Chunks are embedded with `gemini-embedding-001`
+    (768 dimensions) and retrieved by cosine similarity.
+-   **Grounded answers:** Gemini answers strictly from retrieved context and
+    says so when the context is insufficient.
+-   **Interactive UI:** Streamlit app for uploading files and chatting, with
+    an expander to inspect the retrieved context behind every answer.
+-   **Evaluation suite:** DeepEval metrics (answer relevancy, faithfulness,
+    contextual recall) runnable under pytest.
+
+## Architecture
+
+```
+upload ─► extract (pypdf / Tesseract / SpeechRecognition)
+       ─► chunk (RecursiveCharacterTextSplitter, 1000/100)
+       ─► embed (gemini-embedding-001, 768-d)
+       ─► store (local Qdrant, cosine)
+
+query  ─► embed ─► top-k semantic search ─► Gemini ─► grounded answer
+```
+
+| File | Role |
+| --- | --- |
+| `app.py` | Streamlit UI (upload + chat) |
+| `ingestion.py` | File-type routing, text extraction, chunking |
+| `utils.py` | Model config, embeddings, OCR, transcription, chunking |
+| `vector_db.py` | Qdrant client, collection setup, upsert, search |
+| `hybrid_search.py` | Retrieval + answer generation |
+| `evaluation.py` | DeepEval/pytest quality suite |
+| `knowledge_graph.py` | Optional Neo4j helpers — **not used** by `app.py` |
+
+> **Note:** an earlier version combined graph traversal (Neo4j) with semantic
+> search. The graph was removed from the live retrieval path; `app.py` is
+> Qdrant-only. `knowledge_graph.py` remains for reference.
 
 ## Tech Stack
 
--   **Backend:** Python, LangChain, Streamlit
--   **Databases:** Qdrant, Neo4j
--   **LLM & Embeddings:** Google Gemini
--   **Evaluation:** DeepEval
--   **Containerization:** Docker
+-   **Backend:** Python 3.10+, LangChain, Streamlit
+-   **Vector DB:** Qdrant (embedded, local disk)
+-   **LLM & Embeddings:** Google Gemini (`gemini-2.5-flash-lite`, `gemini-embedding-001`)
+-   **Evaluation:** DeepEval + pytest
 
 ---
 
-##  Prerequisites
+## Prerequisites
 
-Before you begin, ensure you have the following installed on your system:
-
-1.  **Python (3.9+):** [Download Python](https://www.python.org/downloads/)
-2.  **Docker & Docker Desktop:** Required to run the Qdrant and Neo4j databases. [Install Docker](https://www.docker.com/products/docker-desktop/)
-3.  **Tesseract OCR Engine:** The system needs this for processing text from images.
+1.  **Python 3.10+** — [Download Python](https://www.python.org/downloads/)
+2.  **Tesseract OCR engine** — only needed for image ingestion.
     -   **macOS:** `brew install tesseract`
     -   **Ubuntu/Debian:** `sudo apt-get install tesseract-ocr`
-    -   **Windows:** Follow the installation guide at [Tesseract at UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
-4.  **Google AI API Key:** You need an API key with billing enabled.
-    -   Get it from [Google AI Studio](https://aistudio.google.com/).
-    -   Ensure you have **enabled billing** and the **Vertex AI API** in your Google Cloud project.
+    -   **Windows:** [Tesseract at UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki)
+3.  **Google AI API key** — free tier is sufficient.
+    Get one from [Google AI Studio](https://aistudio.google.com/apikey).
+
+Docker is **not** required: Qdrant runs embedded, writing to `./local_qdrant_db`.
 
 ---
 
-## 🚀 Step-by-Step Setup Instructions
+## Setup
 
+### 1. Create and activate a virtual environment
 
-### 1. Create and Activate a Virtual Environment
+```bash
+python -m venv .venv
+```
 
-It's highly recommended to use a virtual environment to manage project dependencies.
+-   **macOS / Linux:** `source .venv/bin/activate`
+-   **Windows:** `.\.venv\Scripts\activate`
 
--   **Create the environment:**
-    ```bash
-    python -m venv venv
-    ```
--   **Activate the environment:**
-    -   **macOS / Linux:**
-        ```bash
-        source venv/bin/activate
-        ```
-    -   **Windows:**
-        ```bash
-        .\venv\Scripts\activate
-        ```
-
-### 3. Install Dependencies
-
-Install all the required Python packages from the `requirements.txt` file.
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 3. Configure your API key
 
-Now, open the `.env` file and fill in your credentials:
+Copy the example file and add your key:
+
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
+```
+
+Then edit `.env`:
 
 ```dotenv
-GOOGLE_API_KEY="Your-Google-AI-API-Key"
-
-# Default for a local Docker container
-QDRANT_HOST="http://localhost:6333"
-QDRANT_API_KEY=""
-
-# Default for a local Docker container or Neo4j Desktop
-NEO4J_URI="neo4j://localhost:7687"
-NEO4J_USERNAME="neo4j"
-NEO4J_PASSWORD="YourStrongNeo4jPassword" # Use the password you set
+GOOGLE_API_KEY=your_api_key_here
 ```
+
+`.env` is gitignored — never commit your key.
 
 ---
 
-## 🏃‍♀️ Running the System
-
-### 1. Start the Backend Databases
-
-The Qdrant and Neo4j databases must be running before you launch the application. Open your terminal and run the following Docker commands.
-
--   **Start Qdrant:**
-    This command will start Qdrant and create a `qdrant_storage` folder in your project directory to persist data.
-    ```bash
-    docker run -p 6333:6333 \
-        --name qdrant-db \
-        -v "$(pwd)/qdrant_storage:/qdrant/storage" \
-        qdrant/qdrant
-    ```
-
--   **Start Neo4j:**
-    Replace `YourStrongNeo4jPassword` with the same password you set in your `.env` file.
-    ```bash
-    docker run \
-        --name neo4j-db \
-        -p 7474:7474 -p 7687:7687 \
-        -d \
-        -e NEO4J_AUTH=neo4j/YourStrongNeo4jPassword \
-        neo4j:latest
-    ```
-    *Alternatively, you can use Neo4j Desktop.*
-
-### 2. Run the Streamlit Application
-
-Ensure your virtual environment is still active.
+## Running the App
 
 ```bash
 streamlit run app.py
 ```
 
-Your web browser will automatically open a new tab with the application running at `http://localhost:8501`.
+The app opens at `http://localhost:8501`.
 
-### 3. Run the Evaluation Suite
+1.  Upload one or more files in the sidebar and click **Process Files**.
+2.  Ask questions in the chat box.
+3.  Expand **View Retrieved Context** to see the chunks behind each answer.
 
-To populate the Evaluation Dashboard, you need to run the evaluation script. This will run a series of tests and generate an `eval_results.json` file.
+### Notes and limitations
 
-Open a **new terminal**, activate the virtual environment again, and run:
+-   **Audio:** only `.wav` is supported. `SpeechRecognition` cannot decode
+    MP3 — convert first: `ffmpeg -i input.mp3 output.wav`.
+-   **Rate limits:** chunks are embedded in batches of 10 with a 2s pause and
+    automatic retry/backoff on HTTP 429, to stay within free-tier quota.
+-   **Changing the embedding model:** `EMBEDDING_MODEL` and `EMBEDDING_DIM` in
+    `utils.py` must stay in sync with the stored vectors. Changing either one
+    makes existing vectors incomparable — delete `local_qdrant_db/` and
+    re-ingest your files.
+-   **Single writer:** embedded Qdrant locks its directory, so only one
+    process may use `local_qdrant_db` at a time. Stop the Streamlit app before
+    running scripts against the same store.
+
+---
+
+## Running the Evaluation Suite
+
+The DeepEval judge metrics default to OpenAI models, so scoring needs an
+OpenAI key **in addition to** the Google key used by the pipeline:
 
 ```bash
-python evaluation.py
+# in .env
+OPENAI_API_KEY=your_openai_key
+DEEPEVAL_JUDGE_MODEL=gpt-4o-mini   # optional, this is the default
 ```
+
+Then:
+
+```bash
+pytest evaluation.py -v
+```
+
+The suite ingests a small fixed document into a temporary Qdrant store (your
+real `local_qdrant_db` is untouched) and scores four queries for answer
+relevancy, faithfulness, and contextual recall.

@@ -44,7 +44,7 @@ with st.sidebar:
     st.header("Upload Knowledge")
     uploaded_files = st.file_uploader(
         "Upload Files", 
-        type=['pdf', 'txt', 'jpg', 'png', 'mp3'],
+        type=['pdf', 'txt', 'jpg', 'jpeg', 'png', 'wav'],
         accept_multiple_files=True
     )
 

@@ -1,20 +1,23 @@
-langchain
-langchain-community
-langchain-openai
-langchain-core
-streamlit
-python-dotenv
-deepeval
-pypdf
-python-docx
-unstructured
-librosa
-soundfile
-torch
-transformers
-pytesseract
-pillow
-qdrant-client
-sentence-transformers
-neo4j
-tiktoken
+# --- Core app (required to run app.py) ---
+streamlit>=1.51.0
+python-dotenv>=1.2.1
+
+# Gemini LLM + embeddings
+langchain-google-genai>=3.1.0
+langchain-text-splitters>=1.0.0
+
+# Vector store
+qdrant-client>=1.16.0
+
+# Document / multimodal extraction
+pypdf>=6.3.0
+pytesseract>=0.3.13            # also needs the Tesseract OCR binary installed
+pillow>=12.0.0
+SpeechRecognition>=3.14.3
+
+# --- Optional: knowledge_graph.py (not used by app.py) ---
+neo4j>=6.0.3
+
+# --- Optional: evaluation.py ---
+deepeval>=3.7.2
+pytest>=9.0.1

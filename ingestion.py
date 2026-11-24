@@ -7,7 +7,9 @@ import vector_db
 def _extract_text_from_pdf(file_path: str) -> str:
     try:
         reader = pypdf.PdfReader(file_path)
-        text = "".join(page.extract_text() for page in reader.pages)
+        # extract_text() returns None for pages with no text layer,
+        # which would raise TypeError inside join().
+        text = "".join(page.extract_text() or "" for page in reader.pages)
         return text
     except Exception as e:
         print(f"Error reading PDF {file_path}: {e}")

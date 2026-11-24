@@ -1,4 +1,6 @@
 import os
+from functools import lru_cache
+
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -23,13 +25,40 @@ def get_llm():
     """Initializes and returns the Google Gemini LLM."""
     return ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=get_google_api_key(), temperature=0)
 
-# def get_embedding_model():
-#     """Initializes and returns the Google embedding model."""
-#     return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=get_google_api_key())
+# --- MODEL CONFIGURATION ---
+# 'models/text-embedding-004' was retired and now returns HTTP 404, which
+# broke every ingestion. 'gemini-embedding-001' is the current model.
+# It defaults to 3072 dimensions, but supports Matryoshka truncation, so we
+# request 768 to stay compatible with the existing Qdrant collection.
+EMBEDDING_MODEL = "models/gemini-embedding-001"
+EMBEDDING_DIM = 768
+
+
+@lru_cache(maxsize=1)
 def get_embedding_model():
-    """Initializes and returns the Google embedding model."""
-    # CHANGED: Switched to 'text-embedding-004' which is stable and 768 dimensions
-    return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=get_google_api_key())
+    """Initializes and returns the Google embedding model (cached)."""
+    return GoogleGenerativeAIEmbeddings(
+        model=EMBEDDING_MODEL, google_api_key=get_google_api_key()
+    )
+
+
+def embed_documents(texts: list[str]) -> list[list[float]]:
+    """Embeds documents at EMBEDDING_DIM dimensions."""
+    return get_embedding_model().embed_documents(
+        texts, output_dimensionality=EMBEDDING_DIM
+    )
+
+
+def embed_query(text: str) -> list[float]:
+    """
+    Embeds a query at EMBEDDING_DIM dimensions.
+
+    Must use the same dimensionality as embed_documents, or the vectors are
+    not comparable and Qdrant rejects the search.
+    """
+    return get_embedding_model().embed_query(
+        text, output_dimensionality=EMBEDDING_DIM
+    )
 
 
 # --- TEXT PROCESSING ---
@@ -89,6 +118,13 @@ def transcribe_audio(audio_path):
     Returns:
         str: The transcribed text.
     """
+    if audio_path.lower().endswith(".mp3"):
+        print(
+            "Error during audio transcription: SpeechRecognition cannot read MP3. "
+            "Convert the file to WAV first (e.g. ffmpeg -i in.mp3 out.wav)."
+        )
+        return ""
+
     recognizer = sr.Recognizer()
     try:
         with sr.AudioFile(audio_path) as source:
@@ -142,7 +178,7 @@ def extract_entities_and_relationships(text, llm):
     
     try:
         response = llm.invoke(prompt)
-        return response
+        return response.content
     except Exception as e:
         print(f"Error during entity extraction: {e}")
         return "[]" # Return empty list as a string
